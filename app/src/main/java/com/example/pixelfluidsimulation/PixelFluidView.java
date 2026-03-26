@@ -17,10 +17,23 @@ import java.util.List;
 import java.util.Random;
 import java.util.logging.Handler;
 
+import kotlin.jvm.Synchronized;
+
 public class PixelFluidView extends View {
+    // Debug flags
+    private boolean renderParticle = false;
+    private boolean renderPixel = false;
+    private boolean showGrid = false;
+    private boolean showFPS = false;
+
+    // FPS counter
+    private long lastTime = 0;
+    private float currentFPS = 0;
+
     // particles
     private List<Particle> particles = new ArrayList<>();
     private int maxParticles = 600;
+    private float particleRadius = 0.2f;
 
     // grid
     private int cols = 30;
@@ -38,7 +51,7 @@ public class PixelFluidView extends View {
     private int numPressureIters = 60; // Số vòng lặp giải áp suất
     private float overRelaxation = 1.9f; // Hệ số hội tụ nhanh (1.0 -> 2.0)
     private float restDensity = 0;       // Mật độ nghỉ (sẽ tính ở init)
-    private float densityStiffness = 1.0f; // Độ cứng của mật độ
+    private float densityStiffness = 0.2f; // Độ cứng của mật độ
 
     //0 = solid, 1 = fluid, 2 = air
     private int[][] cellType;
@@ -57,42 +70,84 @@ public class PixelFluidView extends View {
     //gravity
     private float gx = 0, gy = 0;
 
+    //damping
+    float damping = 0.98f;
+
     //paint
     private Paint paint;
+    private Paint uiPaint;
+    private Paint pixelPaint;
+    private Paint particlePaint;
+//    private float[] gridCoords;
+    private float[] activePixelBuffer = new float[cols * rows * 2];
 
     //delta time
     float dt = 0.016f; // ~60fps
 
     //simulation
     private boolean isRunning = false;
-    private final Runnable simulationRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (!isRunning) return;
 
-            update();      // Tính toán vật lý
-            invalidate();  // Vẽ lại màn hình
-
-            // lặp sau 16ms ~ 60FPS
-            postDelayed(this, 16);
-        }
-    };
+    private Thread physicsThread;
+    private final Object syncLock = new Object();
 
     public PixelFluidView(Context context) {
         super(context);
         init();
     }
 
+    public PixelFluidView(Context context, @Nullable AttributeSet attrs) {
+        super(context, attrs);
+        init();
+    }
+
+    public PixelFluidView(Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
+        super(context, attrs, defStyleAttr);
+        init();
+    }
+
     public void startSimulation() {
         if (!isRunning) {
             isRunning = true;
-            post(simulationRunnable);
+            physicsThread = new Thread(()->{
+                long targetTimeMillis = 16; //~60FPS
+                while(isRunning){
+                    long startTime = System.currentTimeMillis();
+
+                    //Lock syncing
+                    synchronized (syncLock){
+                        update();
+                    }
+
+                    //draw with background thread
+                    postInvalidate();
+
+                    // Tính toán thời gian ngủ để cân bằng tốc độ (Frame pacing)
+                    long timeTaken = System.currentTimeMillis() - startTime;
+                    long sleepTime = targetTimeMillis - timeTaken;
+
+                    if (sleepTime > 0) {
+                        try {
+                            Thread.sleep(sleepTime);
+                        } catch (InterruptedException e) {
+                            break;
+                        }
+                    }
+                }
+            });
+            physicsThread.start();
         }
     }
 
     public void stopSimulation() {
         isRunning = false;
-        removeCallbacks(simulationRunnable);
+        if(physicsThread != null){
+            try{
+                physicsThread.join(); //wait for the thread to end
+            }catch (InterruptedException e){
+                e.printStackTrace();
+            }
+            physicsThread = null;
+        }
     }
 
     private void init(){
@@ -109,9 +164,24 @@ public class PixelFluidView extends View {
         firstParticle = new int[cols * rows];
         nextParticle = new int[maxParticles];
 
+        // paints
         paint = new Paint();
+        paint.setAntiAlias(false); // tắt khử răng cưa
 
-        restDensity = (float) (maxParticles / ((cols * rows)*0.3));
+        // UI Paint for FPS counter
+        uiPaint = new Paint();
+        uiPaint.setColor(Color.YELLOW);
+        uiPaint.setTextSize(50);
+        uiPaint.setAntiAlias(true);
+        uiPaint.setStyle(Paint.Style.FILL);
+
+        // Pixel paint for pixel render
+        pixelPaint = new Paint();
+
+        // Particle paint for particle render
+        particlePaint = new Paint();
+
+        restDensity = (float) (maxParticles / ((cols * rows)*0.2));
         if (restDensity <= 0) restDensity = 1.0f;
 
         //init border
@@ -131,12 +201,24 @@ public class PixelFluidView extends View {
             particles.add(new Particle(
                     1.5f + (float)(Math.random() * (cols - 3)), // Cách tường ít nhất 1 ô
                     1.5f + (float)(Math.random() * (rows - 3)),
-                    0.4f
+                    particleRadius
             ));
         }
 
         isRunning = false;
     }
+
+    // get all of grid's coords
+//    private void initGridCoords() {
+//        gridCoords = new float[cols * rows * 2];
+//        int idx = 0;
+//        for (int i = 0; i < cols; i++) {
+//            for (int j = 0; j < rows; j++) {
+//                gridCoords[idx++] = i; // Lưu chỉ số cột
+//                gridCoords[idx++] = j; // Lưu chỉ số hàng
+//            }
+//        }
+//    }
 
     //update for particles
     private void update(){
@@ -146,7 +228,6 @@ public class PixelFluidView extends View {
             p.vy += gy * dt;
 
             // Damping (friction)
-            float damping = (float)Math.pow(0.98f, dt * 60f);
             p.vx *= damping;
             p.vy *= damping;
 
@@ -154,7 +235,7 @@ public class PixelFluidView extends View {
             p.y += p.vy * dt;
         }
 
-        pushParticlesApart(2); checkNaN("After Push");
+        pushParticlesApart(1); checkNaN("After Push");
 
         handleCollisions();
         checkNaN("After Collisions");
@@ -205,19 +286,16 @@ public class PixelFluidView extends View {
     }
 
     private void handleCollisions() {
-        // Tường dày 1 ô, cộng thêm bán kính hạt (0.4f) để hạt nằm gọn trên mặt sàn
-        float radius = 0.4f;
+        // Tường dày 1 ô, cộng thêm bán kính hạt để hạt nằm gọn trên mặt sàn
+        float radius = particleRadius;
         float minX = 1.0f + radius;
         float maxX = (cols - 1) - radius;
         float minY = 1.0f + radius;
         float maxY = (rows - 1) - radius;
 
         for(Particle p : particles){
-            // Giới hạn vận tốc cực đại để tránh xuyên tường do dt lớn
-            p.vx = clamp(p.vx, -20f, 20f);
-            p.vy = clamp(p.vy, -20f, 20f);
 
-            // Xử lý va chạm biên: Ép vị trí và triệt tiêu vận tốc (KHÔNG dội lại)
+            // Xử lý va chạm biên: Ép vị trí và triệt tiêu vận tốc
             if (p.x < minX) {
                 p.x = minX;
                 p.vx = 0.0f;
@@ -383,8 +461,8 @@ public class PixelFluidView extends View {
             float xU = p.x;
             float yU = p.y - halfH;
 
-            int iU = (int) Math.floor(xU);
-            int jU = (int) Math.floor(yU);
+            int iU = (int)xU;
+            int jU = (int)yU;
 
             iU = Math.max(0, Math.min(iU, cols - 2));
             jU = Math.max(0, Math.min(jU, rows - 2));
@@ -407,8 +485,8 @@ public class PixelFluidView extends View {
             float xV = p.x - halfH;
             float yV = p.y;
 
-            int iV = (int) Math.floor(xV);
-            int jV = (int) Math.floor(yV);
+            int iV = (int)xV;
+            int jV = (int)yV;
 
             iV = Math.max(0, Math.min(iV, cols - 2));
             jV = Math.max(0, Math.min(jV, rows - 2));
@@ -426,10 +504,22 @@ public class PixelFluidView extends View {
             addV(iV,   jV + 1, p.vy, w01V);
             addV(iV + 1, jV + 1, p.vy, w11V);
 
-            // --- Cập nhật mật độ hạt (Density) ---
-            int di = (int)clamp(p.x, 0, cols - 1);
-            int dj = (int)clamp(p.y, 0, rows - 1);
-            particleDensity[di][dj] += 1.0f;
+
+            // --- Cập nhật mật độ hạt mượt mà (Smooth Density) ---
+            // Mật độ nên được tính tại tâm ô (giống như áp suất)
+            float x = clamp(p.x, 0.5f, cols - 1.5f);
+            float y = clamp(p.y, 0.5f, rows - 1.5f);
+
+            int i = (int)(x - 0.5f);
+            int j = (int)(y - 0.5f);
+            float fx = (x - 0.5f) - i;
+            float fy = (y - 0.5f) - j;
+
+            // Trọng số bilinear cho 4 ô xung quanh tâm
+            particleDensity[i][j]     += (1 - fx) * (1 - fy);
+            particleDensity[i + 1][j] += fx * (1 - fy);
+            particleDensity[i][j + 1] += (1 - fx) * fy;
+            particleDensity[i + 1][j + 1] += fx * fy;
         }
 
         // normalize the velocity strength
@@ -557,17 +647,131 @@ public class PixelFluidView extends View {
 
         float cellSize = getWidth() / (float) cols;
 
-        // draw background
-        canvas.drawColor(Color.BLACK);
+        // draw background (dark blue)
+//        canvas.drawColor(Color.rgb(17, 31, 56));
+        canvas.drawColor(Color.rgb(10, 10, 20));
 
-        // draw the particles
-        for(Particle p : particles){
+        synchronized (syncLock){
+            paint.setStyle(Paint.Style.FILL);
+
+            //draw walls
+            for (int i = 0; i < cols; i++) {
+                for (int j = 0; j < rows; j++) {
+                    if (cellType[i][j] == SOLID) { // draw SOLIDS
+                        paint.setColor(Color.argb(50, 255, 255, 255));
+                        canvas.drawRect(
+                                i * cellSize, j * cellSize,
+                                (i + 1) * cellSize, (j + 1) * cellSize,
+                                paint
+                        );
+                    }
+                }
+            }
+
+            // draw grid
+            if (showGrid) {
+                drawGrid(canvas, cellSize);
+                drawDensityCells(canvas, cellSize);
+            }
+
+            // draw the particles
+            if(renderParticle)
+                drawParticles(canvas, cellSize);
+
+            // draw the pixels
+            if(renderPixel)
+                drawPixels(canvas, cellSize);
+
+        }
+
+        // draw FPS
+        if (showFPS) {
+            drawFPS(canvas);
+        }
+    }
+
+    private void drawFPS(Canvas canvas){
+        calculateFPS();
+        uiPaint.setColor(Color.YELLOW);
+        uiPaint.setTextSize(50);
+        canvas.drawText("FPS: " + (int)currentFPS, 50, 100, uiPaint);
+    }
+    private void drawGrid(Canvas canvas, float cellSize){
+        paint.setColor(Color.rgb(94, 95, 97));
+        paint.setStrokeWidth(1f);
+        //columns
+        for (int i = 1; i < cols; i++) {
+            canvas.drawLine(i * cellSize, cellSize, i * cellSize, (rows - 1) * cellSize, paint);
+        }
+        for (int j = 1; j < rows; j++) {
+            canvas.drawLine(cellSize, j * cellSize, (cols - 1) * cellSize, j * cellSize, paint);
+        }
+    }
+
+    private void drawParticles(Canvas canvas, float cellSize){
+        particlePaint.setStyle(Paint.Style.FILL);
+        for (Particle p : particles) {
             float cx = p.x * cellSize;
             float cy = p.y * cellSize;
-
-            paint.setColor(Color.CYAN);
-            canvas.drawCircle(cx, cy, p.radius * (cellSize), paint);
+            particlePaint.setColor(Color.CYAN);
+            canvas.drawCircle(cx, cy, p.radius * cellSize, particlePaint);
         }
+    }
+
+    private void drawPixels(Canvas canvas, float cellSize){
+        // finds all the fluid cells
+        int activeCount = 0;
+        for (int i = 0; i < cols; i++) {
+            for (int j = 0; j < rows; j++) {
+                if (cellType[i][j] == FLUID) {
+                    // Tính tọa độ pixel trên màn hình
+                    activePixelBuffer[activeCount++] = (i + 0.5f) * cellSize;
+                    activePixelBuffer[activeCount++] = (j + 0.5f) * cellSize;
+                }
+            }
+        }
+
+        if (activeCount == 0) return;
+
+        // configure paint for LED effect
+        pixelPaint.setStyle(Paint.Style.STROKE);
+        pixelPaint.setStrokeCap(Paint.Cap.SQUARE);
+
+        // Glow layer
+        pixelPaint.setStrokeWidth(cellSize * 1.5f);
+        pixelPaint.setColor(Color.argb(60, 0, 255, 200));
+        canvas.drawPoints(activePixelBuffer, 0, activeCount, pixelPaint);
+
+        // Core Layer
+        float spacing = 4f;
+        pixelPaint.setStrokeWidth(Math.max(1, cellSize - spacing));
+        pixelPaint.setColor(Color.rgb(0, 255, 220));
+        canvas.drawPoints(activePixelBuffer, 0, activeCount, pixelPaint);
+    }
+    private void drawDensityCells(Canvas canvas, float cellSize){
+        // draw cells
+        paint.setStyle(Paint.Style.FILL);
+        for (int i = 0; i < cols; i++) {
+            for (int j = 0; j < rows; j++) {
+                if(cellType[i][j] == FLUID){
+                    // density debug with color
+                    float d = particleDensity[i][j] / restDensity; // Tỷ lệ mật độ
+                    int alpha = (int)clamp(d * 100, 0, 100); // Mật độ càng cao ô càng sáng
+                    paint.setColor(Color.argb(alpha, 255, 0, 0)); // Màu đỏ cảnh báo nén
+                    canvas.drawRect(i * cellSize, j * cellSize, (i + 1) * cellSize, (j + 1) * cellSize, paint);
+                }
+            }
+        }
+    }
+
+    private void calculateFPS() {
+        long currentTime = System.nanoTime();
+        if (lastTime != 0) {
+            // Tính delta time theo giây: 1e9 nano giây = 1 giây
+            float frameTime = (currentTime - lastTime) / 1_000_000_000f;
+            currentFPS = (currentFPS * 0.9f) + ((1f / frameTime) * 0.1f); // Làm mượt số FPS
+        }
+        lastTime = currentTime;
     }
 
     public void setGravity(float gx, float gy){
@@ -602,5 +806,29 @@ public class PixelFluidView extends View {
                 }
             }
         }
+    }
+
+    // Toggle
+    public void setShowGrid(boolean show) {
+        this.showGrid = show;
+        invalidate();
+    }
+    public void setShowFPS(boolean show) {
+        this.showFPS = show;
+        invalidate();
+    }
+
+    public void setRenderParticle(boolean render) {
+        this.renderParticle = render;
+        invalidate();
+    }
+    public void setRenderPixel(boolean render) {
+        this.renderPixel = render;
+        invalidate();
+    }
+
+    // Density Stiffness (0.0 -> 1.0)
+    public void setDensityStiffness(float stiffness) {
+        this.densityStiffness = stiffness;
     }
 }
