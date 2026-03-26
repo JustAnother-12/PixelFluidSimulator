@@ -11,14 +11,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
-    private FluidView fluidView;
+    private PixelFluidView fluidView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         // Khởi tạo View trực tiếp
-        fluidView = new FluidView(this, null);
+        fluidView = new PixelFluidView(this);
         setContentView(fluidView);
 
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
@@ -33,21 +33,29 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         if (accelerometer != null) {
             sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
         }
+
+        if (fluidView != null) {
+            fluidView.startSimulation();
+        }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         sensorManager.unregisterListener(this);
+
+        if (fluidView != null) {
+            fluidView.stopSimulation();
+        }
     }
 
     @Override
     public void onSensorChanged(SensorEvent event) {
         if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
-            float x = -event.values[0] * 0.8f;
-            float y = event.values[1] * 0.8f;
+            float gx = -event.values[0] * 20.0f;
+            float gy = event.values[1] * 20.0f;
 
-            fluidView.setGravity(x, y);
+            fluidView.setGravity(gx, gy);
         }
     }
 
