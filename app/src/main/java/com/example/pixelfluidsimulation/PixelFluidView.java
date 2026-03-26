@@ -20,7 +20,7 @@ import java.util.logging.Handler;
 public class PixelFluidView extends View {
     // particles
     private List<Particle> particles = new ArrayList<>();
-    private int maxParticles = 400;
+    private int maxParticles = 600;
 
     // grid
     private int cols = 30;
@@ -61,7 +61,7 @@ public class PixelFluidView extends View {
     private Paint paint;
 
     //delta time
-    float dt = 0.02f; // ~60fps
+    float dt = 0.016f; // ~60fps
 
     //simulation
     private boolean isRunning = false;
@@ -112,7 +112,6 @@ public class PixelFluidView extends View {
         paint = new Paint();
 
         restDensity = (float) (maxParticles / ((cols * rows)*0.3));
-//        restDensity = 1.0f;
         if (restDensity <= 0) restDensity = 1.0f;
 
         //init border
@@ -132,7 +131,7 @@ public class PixelFluidView extends View {
             particles.add(new Particle(
                     1.5f + (float)(Math.random() * (cols - 3)), // Cách tường ít nhất 1 ô
                     1.5f + (float)(Math.random() * (rows - 3)),
-                    0.6f
+                    0.4f
             ));
         }
 
@@ -141,13 +140,24 @@ public class PixelFluidView extends View {
 
     //update for particles
     private void update(){
-        //apply gravity
+        // apply gravity and move particles
         for(Particle p : particles) {
             p.vx += gx * dt;
             p.vy += gy * dt;
+
+            // Damping (friction)
+            float damping = (float)Math.pow(0.98f, dt * 60f);
+            p.vx *= damping;
+            p.vy *= damping;
+
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
         }
 
-        moveParticles(); checkNaN("After Move");
+        pushParticlesApart(2); checkNaN("After Push");
+
+        handleCollisions();
+        checkNaN("After Collisions");
 
         updateCellType();
 
@@ -161,8 +171,6 @@ public class PixelFluidView extends View {
         checkGridSanity("A");
 
         gridToParticles(); checkNaN("After GridToParticles");
-
-        pushParticlesApart(1); checkNaN("After Push");
     }
 
     private void updateCellType(){
@@ -196,44 +204,35 @@ public class PixelFluidView extends View {
         }
     }
 
-    private void moveParticles() {
+    private void handleCollisions() {
+        // Tường dày 1 ô, cộng thêm bán kính hạt (0.4f) để hạt nằm gọn trên mặt sàn
+        float radius = 0.4f;
+        float minX = 1.0f + radius;
+        float maxX = (cols - 1) - radius;
+        float minY = 1.0f + radius;
+        float maxY = (rows - 1) - radius;
+
         for(Particle p : particles){
-//            p.vx += gx * dt;
-//            p.vy += gy * dt;
-            // Chặn vận tốc không cho quá nhanh (max 1 ô lưới / frame)
+            // Giới hạn vận tốc cực đại để tránh xuyên tường do dt lớn
             p.vx = clamp(p.vx, -20f, 20f);
             p.vy = clamp(p.vy, -20f, 20f);
 
-            // damping (friction)
-            float damping = (float)Math.pow(0.98f, dt * 60f);
-            p.vx *= damping;
-            p.vy *= damping;
-
-            // move the particles
-            p.x += p.vx * dt;
-            p.y += p.vy * dt;
-
-            // Giới hạn cứng để hạt không bao giờ văng ra khỏi mảng
-            float margin = 1.01f;
-            if (p.x < margin) { p.x = margin; p.vx *= -0.1f; }
-            if (p.x > cols - margin - 1) { p.x = cols - margin - 1; p.vx *= -0.1f; }
-            if (p.y < margin) { p.y = margin; p.vy *= -0.1f; }
-            if (p.y > rows - margin - 1) { p.y = rows - margin - 1; p.vy *= -0.1f; }
-
-            // Va chạm với ô SOLID
-            int i = (int)clamp(p.x, 0, cols - 1);
-            int j = (int)clamp(p.y, 0, rows - 1);
-
-            if(cellType[i][j] == SOLID){
-                //push back to closest cell
-                p.x -= p.vx * dt;
-                p.y -= p.vy * dt;
-
-                //set back velocity
-                p.vx *= -0.1f;
-                p.vy *= -0.1f;
+            // Xử lý va chạm biên: Ép vị trí và triệt tiêu vận tốc (KHÔNG dội lại)
+            if (p.x < minX) {
+                p.x = minX;
+                p.vx = 0.0f;
+            } else if (p.x > maxX) {
+                p.x = maxX;
+                p.vx = 0.0f;
             }
 
+            if (p.y < minY) {
+                p.y = minY;
+                p.vy = 0.0f;
+            } else if (p.y > maxY) {
+                p.y = maxY;
+                p.vy = 0.0f;
+            }
         }
     }
     private void gridToParticles() {
@@ -381,10 +380,15 @@ public class PixelFluidView extends View {
         for (Particle p : particles) {
             // process U Velocity (horizontal)
             // U nằm ở (i, j + 0.5), nên ta dịch Y đi 0.5 để khớp vị trí
-            float xU = clamp(p.x, 0, cols - 1);
-            float yU = clamp(p.y - halfH, 0, rows - 2);
-            int iU = (int)xU;
-            int jU = (int)yU;
+            float xU = p.x;
+            float yU = p.y - halfH;
+
+            int iU = (int) Math.floor(xU);
+            int jU = (int) Math.floor(yU);
+
+            iU = Math.max(0, Math.min(iU, cols - 2));
+            jU = Math.max(0, Math.min(jU, rows - 2));
+
             float fxU = xU - iU;
             float fyU = yU - jU;
 
@@ -400,10 +404,15 @@ public class PixelFluidView extends View {
 
             // process V Velocity (vertical)
             // V nằm ở (i + 0.5, j), nên ta dịch X đi 0.5 để khớp vị trí
-            float xV = clamp(p.x - halfH, 0, cols - 2);
-            float yV = clamp(p.y, 0, rows - 1);
-            int iV = (int)xV;
-            int jV = (int)yV;
+            float xV = p.x - halfH;
+            float yV = p.y;
+
+            int iV = (int) Math.floor(xV);
+            int jV = (int) Math.floor(yV);
+
+            iV = Math.max(0, Math.min(iV, cols - 2));
+            jV = Math.max(0, Math.min(jV, rows - 2));
+
             float fxV = xV - iV;
             float fyV = yV - jV;
 
