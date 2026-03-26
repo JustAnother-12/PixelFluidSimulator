@@ -50,8 +50,8 @@ public class PixelFluidView extends View {
 
     private int numPressureIters = 60; // Số vòng lặp giải áp suất
     private float overRelaxation = 1.9f; // Hệ số hội tụ nhanh (1.0 -> 2.0)
-    private float restDensity = 0;       // Mật độ nghỉ (sẽ tính ở init)
-    private float densityStiffness = 0.2f; // Độ cứng của mật độ
+    private float restDensity = (float) (maxParticles / ((cols * rows)*0.2));
+    private float densityStiffness = 2.0f; // Độ cứng của mật độ
 
     //0 = solid, 1 = fluid, 2 = air
     private int[][] cellType;
@@ -78,8 +78,10 @@ public class PixelFluidView extends View {
     private Paint uiPaint;
     private Paint pixelPaint;
     private Paint particlePaint;
-//    private float[] gridCoords;
-    private float[] activePixelBuffer = new float[cols * rows * 2];
+//    private float[] activePixelBuffer = new float[cols * rows * 2];
+    private float[][] pixelBrightness = new float[cols][rows];
+    private float decayRate = 0.65f; // speed for brightness decaying (0.0 -> 1.0)
+    private float minBrightness = 0.05f;
 
     //delta time
     float dt = 0.016f; // ~60fps
@@ -115,7 +117,7 @@ public class PixelFluidView extends View {
 
                     //Lock syncing
                     synchronized (syncLock){
-                        update();
+                        update(dt);
                     }
 
                     //draw with background thread
@@ -172,17 +174,12 @@ public class PixelFluidView extends View {
         uiPaint = new Paint();
         uiPaint.setColor(Color.YELLOW);
         uiPaint.setTextSize(50);
-        uiPaint.setAntiAlias(true);
-        uiPaint.setStyle(Paint.Style.FILL);
 
         // Pixel paint for pixel render
         pixelPaint = new Paint();
 
         // Particle paint for particle render
         particlePaint = new Paint();
-
-        restDensity = (float) (maxParticles / ((cols * rows)*0.2));
-        if (restDensity <= 0) restDensity = 1.0f;
 
         //init border
         for (int i = 0; i < cols; i++) {
@@ -208,20 +205,25 @@ public class PixelFluidView extends View {
         isRunning = false;
     }
 
-    // get all of grid's coords
-//    private void initGridCoords() {
-//        gridCoords = new float[cols * rows * 2];
-//        int idx = 0;
-//        for (int i = 0; i < cols; i++) {
-//            for (int j = 0; j < rows; j++) {
-//                gridCoords[idx++] = i; // Lưu chỉ số cột
-//                gridCoords[idx++] = j; // Lưu chỉ số hàng
-//            }
-//        }
-//    }
+    private void updatePixelBrightness() {
+        //density threshold
+        float threshold = 0.15f;
+
+        for (int i = 1; i < cols; i++) {
+            for (int j = 1; j < rows; j++) {
+                    if (particleDensity[i][j] > threshold) {
+                        // give full brightness if there's particle
+                        pixelBrightness[i][j] = 1.0f;
+                    } else{
+                        // reduce if there's no particle
+                        pixelBrightness[i][j] = Math.max(minBrightness, pixelBrightness[i][j] * decayRate);
+                    }
+            }
+        }
+    }
 
     //update for particles
-    private void update(){
+    private void update(float dt){
         // apply gravity and move particles
         for(Particle p : particles) {
             p.vx += gx * dt;
@@ -249,9 +251,10 @@ public class PixelFluidView extends View {
 
         solveIncompressibility();
         checkNaN("After Solve");
-        checkGridSanity("A");
 
         gridToParticles(); checkNaN("After GridToParticles");
+
+        updatePixelBrightness();
     }
 
     private void updateCellType(){
@@ -269,7 +272,6 @@ public class PixelFluidView extends View {
             int j = (int)clamp(p.y, 0, rows - 1);
 
             if(cellType[i][j] == AIR) cellType[i][j] = FLUID;
-            particleDensity[i][j]++; // count particles in each cells
         }
     }
 
@@ -314,7 +316,7 @@ public class PixelFluidView extends View {
         }
     }
     private void gridToParticles() {
-        float alpha = 0.95f;
+        float alpha = 0.90f;
 
         for (Particle p : particles) {
 
@@ -692,6 +694,8 @@ public class PixelFluidView extends View {
 
     private void drawFPS(Canvas canvas){
         calculateFPS();
+        uiPaint.setAntiAlias(true);
+        uiPaint.setStyle(Paint.Style.FILL);
         uiPaint.setColor(Color.YELLOW);
         uiPaint.setTextSize(50);
         canvas.drawText("FPS: " + (int)currentFPS, 50, 100, uiPaint);
@@ -713,40 +717,46 @@ public class PixelFluidView extends View {
         for (Particle p : particles) {
             float cx = p.x * cellSize;
             float cy = p.y * cellSize;
-            particlePaint.setColor(Color.CYAN);
+            particlePaint.setColor(Color.GREEN);
             canvas.drawCircle(cx, cy, p.radius * cellSize, particlePaint);
         }
     }
 
-    private void drawPixels(Canvas canvas, float cellSize){
-        // finds all the fluid cells
-        int activeCount = 0;
+    private void drawPixels(Canvas canvas, float cellSize) {
+        float spacing = 4f;
+        float pixelSize = cellSize - spacing;
+
         for (int i = 0; i < cols; i++) {
             for (int j = 0; j < rows; j++) {
-                if (cellType[i][j] == FLUID) {
-                    // Tính tọa độ pixel trên màn hình
-                    activePixelBuffer[activeCount++] = (i + 0.5f) * cellSize;
-                    activePixelBuffer[activeCount++] = (j + 0.5f) * cellSize;
+                float brightness = pixelBrightness[i][j];
+                float cx = (i + 0.5f) * cellSize;
+                float cy = (j + 0.5f) * cellSize;
+
+                // Glow layer
+                if (brightness > 0.3f) {
+                    pixelPaint.setStyle(Paint.Style.FILL);
+                    pixelPaint.setColor(Color.argb((int)(brightness * 40), 0, 255, 200));
+                    canvas.drawCircle(cx, cy, cellSize * 0.8f, pixelPaint);
                 }
+
+                // Core layer
+                // color change based on brightness
+                int alpha = (int) (brightness * 255);
+                // display tint grey if brightness = minBrightness
+                if (brightness <= minBrightness) {
+                    pixelPaint.setColor(Color.argb(30, 50, 50, 80));
+                } else {
+                    pixelPaint.setColor(Color.argb(alpha, 0, 255, 220));
+                }
+
+                pixelPaint.setStyle(Paint.Style.FILL);
+                canvas.drawRect(
+                        cx - pixelSize/2, cy - pixelSize/2,
+                        cx + pixelSize/2, cy + pixelSize/2,
+                        pixelPaint
+                );
             }
         }
-
-        if (activeCount == 0) return;
-
-        // configure paint for LED effect
-        pixelPaint.setStyle(Paint.Style.STROKE);
-        pixelPaint.setStrokeCap(Paint.Cap.SQUARE);
-
-        // Glow layer
-        pixelPaint.setStrokeWidth(cellSize * 1.5f);
-        pixelPaint.setColor(Color.argb(60, 0, 255, 200));
-        canvas.drawPoints(activePixelBuffer, 0, activeCount, pixelPaint);
-
-        // Core Layer
-        float spacing = 4f;
-        pixelPaint.setStrokeWidth(Math.max(1, cellSize - spacing));
-        pixelPaint.setColor(Color.rgb(0, 255, 220));
-        canvas.drawPoints(activePixelBuffer, 0, activeCount, pixelPaint);
     }
     private void drawDensityCells(Canvas canvas, float cellSize){
         // draw cells

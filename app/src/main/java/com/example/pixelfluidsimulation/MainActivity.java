@@ -7,6 +7,7 @@ import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.widget.CheckBox;
 import android.widget.SeekBar;
+import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -20,14 +21,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private CheckBox checkBoxFPS;
     private CheckBox checkBoxGrid;
     private SeekBar seekBarStiffness;
-    private SeekBar seekBarGravity;
+    private SeekBar seekBarSensor;
+    private TextView txtStiffnessValue;
+    private TextView txtSensorValue;
     private float sensorStrength;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
 
         //get from layout
         fluidView = findViewById(R.id.fluidView);
@@ -38,7 +40,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         checkBoxPixel = findViewById(R.id.checkPixel);
 
         seekBarStiffness = findViewById(R.id.seekStiffness);
-        seekBarGravity = findViewById(R.id.seekGravity);
+        seekBarSensor = findViewById(R.id.seekSensor);
+
+        txtStiffnessValue = findViewById(R.id.txtStiffnessValue);
+        txtSensorValue = findViewById(R.id.txtSensorValue);
 
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         if (sensorManager != null) {
@@ -52,16 +57,18 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         checkBoxFPS.setChecked(true);
         checkBoxGrid.setChecked(false);
         seekBarStiffness.setProgress(20);
-        seekBarGravity.setProgress(20);
+        seekBarSensor.setProgress(20);
+        txtStiffnessValue.setText(String.valueOf(seekBarStiffness.getProgress()/10f));
+        txtSensorValue.setText(String.valueOf(seekBarSensor.getProgress()));
         sensorStrength = 20f;
 
 
         // sync fluidView
-        fluidView.setRenderPixel(true);
-        fluidView.setRenderParticle(false);
-        fluidView.setShowFPS(true);
-        fluidView.setShowGrid(false);
-        fluidView.setDensityStiffness(0.2f);
+        fluidView.setRenderPixel(checkBoxPixel.isChecked());
+        fluidView.setRenderParticle(checkBoxParticle.isChecked());
+        fluidView.setShowFPS(checkBoxFPS.isChecked());
+        fluidView.setShowGrid(checkBoxGrid.isChecked());
+        fluidView.setDensityStiffness(seekBarStiffness.getProgress()/10f);
 
 
         // Events
@@ -81,8 +88,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         seekBarStiffness.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                float stiffness = progress/100f;
+                float stiffness = progress/10f;
                 fluidView.setDensityStiffness(stiffness);
+                txtStiffnessValue.setText(String.valueOf(stiffness));
             }
 
             @Override
@@ -96,11 +104,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             }
         });
 
-        seekBarGravity.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+        seekBarSensor.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 float gravityMultiply = (float) progress;
                 sensorStrength = gravityMultiply;
+                txtSensorValue.setText(String.valueOf(gravityMultiply));
             }
 
             @Override

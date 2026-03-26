@@ -79,13 +79,23 @@
             android:gravity="center_vertical"
             android:paddingStart="8dp">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Density Stiffness"
-                android:textSize="12sp"
-                android:textColor="#FFF" />
-
+                android:orientation="horizontal">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Density Stiffness"
+                    android:textSize="12sp"
+                    android:textColor="#FFF" />
+                <TextView
+                    android:id="@+id/txtStiffnessValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="#FFF" />
+            </LinearLayout>
             <SeekBar
                 android:id="@+id/seekStiffness"
                 android:layout_width="match_parent"
@@ -93,15 +103,25 @@
                 android:layout_marginBottom="8dp"
                 android:max="100" />
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Gravity Strength"
-                android:textSize="12sp"
-                android:textColor="#FFF" />
-
+                android:orientation="horizontal">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Sensor Strength"
+                    android:textSize="12sp"
+                    android:textColor="#FFF" />
+                <TextView
+                    android:id="@+id/txtSensorValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="#FFF" />
+            </LinearLayout>
             <SeekBar
-                android:id="@+id/seekGravity"
+                android:id="@+id/seekSensor"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:max="100" />
