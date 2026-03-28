@@ -32,12 +32,15 @@ public class PixelFluidView extends View {
 
     // particles
     private List<Particle> particles = new ArrayList<>();
-    private int maxParticles = 600;
-    private float particleRadius = 0.2f;
+    private int maxParticles = 1000;
+    private float particleRadius = 0.1f;
 
     // grid
-    private int cols = 30;
-    private int rows = 50;
+//    private int cols = 30;
+//    private int rows = 50;
+
+    private int cols = 50;
+    private int rows = 80;
 
     private float[][] u;
     private float[][] v;
@@ -52,8 +55,6 @@ public class PixelFluidView extends View {
     private float overRelaxation = 1.9f; // Hệ số hội tụ nhanh (1.0 -> 2.0)
     private float restDensity = (float) (maxParticles / ((cols * rows)*0.2));
     private float densityStiffness = 2.0f; // Độ cứng của mật độ
-
-    //0 = solid, 1 = fluid, 2 = air
     private int[][] cellType;
     private float[][] particleDensity;
 
@@ -62,7 +63,7 @@ public class PixelFluidView extends View {
     private static final int FLUID = 1;
     private static final int SOLID = 2;
 
-    // mảng hỗ trợ Spatial Hashing
+    // for Spatial Hashing
     private int[] cellCount;
     private int[] firstParticle;
     private int[] nextParticle;
@@ -78,17 +79,24 @@ public class PixelFluidView extends View {
     private Paint uiPaint;
     private Paint pixelPaint;
     private Paint particlePaint;
-//    private float[] activePixelBuffer = new float[cols * rows * 2];
     private float[][] pixelBrightness = new float[cols][rows];
     private float decayRate = 0.65f; // speed for brightness decaying (0.0 -> 1.0)
     private float minBrightness = 0.05f;
+
+    // verticies
+    private int numQuads = cols * rows; // number of cells
+    private int numVerticies = numQuads * 4; // each quad has 4 points for verticies
+    private int numIndices = numQuads * 6; // each quad has 6 numbers to tell the GPU draw order
+
+    private float[] vertices = new float[numVerticies*2]; //x and y
+    private int[] colors = new int[numVerticies]; // 1 color or each point
+    private short[] indices = new short[numIndices];
 
     //delta time
     float dt = 0.016f; // ~60fps
 
     //simulation
     private boolean isRunning = false;
-
     private Thread physicsThread;
     private final Object syncLock = new Object();
 
@@ -168,7 +176,7 @@ public class PixelFluidView extends View {
 
         // paints
         paint = new Paint();
-        paint.setAntiAlias(false); // tắt khử răng cưa
+        paint.setAntiAlias(false);
 
         // UI Paint for FPS counter
         uiPaint = new Paint();
@@ -180,6 +188,9 @@ public class PixelFluidView extends View {
 
         // Particle paint for particle render
         particlePaint = new Paint();
+
+        //indices
+        initIndices();
 
         //init border
         for (int i = 0; i < cols; i++) {
@@ -203,6 +214,24 @@ public class PixelFluidView extends View {
         }
 
         isRunning = false;
+    }
+
+    private void initIndices(){
+        for(int i = 0; i < numQuads; i++){
+            int vStart = i * 4;
+            int iStart = i * 6;
+
+            //init values
+            //first tri
+            indices[iStart] = (short) vStart;
+            indices[iStart + 1] = (short) (vStart + 1);
+            indices[iStart + 2] = (short) (vStart + 2);
+
+            //second tri
+            indices[iStart + 3] = (short) (vStart + 1);
+            indices[iStart + 4] = (short) (vStart + 2);
+            indices[iStart + 5] = (short) (vStart + 3);
+        }
     }
 
     private void updatePixelBrightness() {
@@ -316,7 +345,7 @@ public class PixelFluidView extends View {
         }
     }
     private void gridToParticles() {
-        float alpha = 0.90f;
+        float alpha = 0.95f;
 
         for (Particle p : particles) {
 
@@ -574,12 +603,12 @@ public class PixelFluidView extends View {
     }
 
     private void pushParticlesApart(int numIters) {
-        float spacing = 0.8f; // Khoảng cách lý tưởng giữa các hạt (đơn vị ô)
+        float spacing = 0.8f; // particle spacing
         float minDist = spacing;
         float minDistSq = minDist * minDist;
 
         for (int iter = 0; iter < numIters; iter++) {
-            // Bước A: Xây dựng Spatial Hash
+            // Build Spatial Hash
             Arrays.fill(cellCount, 0);
             for (Particle p : particles) {
                 int cx = (int)clamp(p.x, 0, cols - 1);
@@ -649,8 +678,7 @@ public class PixelFluidView extends View {
 
         float cellSize = getWidth() / (float) cols;
 
-        // draw background (dark blue)
-//        canvas.drawColor(Color.rgb(17, 31, 56));
+        // draw background
         canvas.drawColor(Color.rgb(10, 10, 20));
 
         synchronized (syncLock){
@@ -682,7 +710,7 @@ public class PixelFluidView extends View {
 
             // draw the pixels
             if(renderPixel)
-                drawPixels(canvas, cellSize);
+                drawVerticies(canvas, cellSize);
 
         }
 
@@ -722,41 +750,95 @@ public class PixelFluidView extends View {
         }
     }
 
-    private void drawPixels(Canvas canvas, float cellSize) {
-        float spacing = 4f;
-        float pixelSize = cellSize - spacing;
+//    private void drawPixels(Canvas canvas, float cellSize) {
+//        float spacing = 4f;
+//        float pixelSize = cellSize - spacing;
+//
+//        for (int i = 0; i < cols; i++) {
+//            for (int j = 0; j < rows; j++) {
+//                float brightness = pixelBrightness[i][j];
+//                float cx = (i + 0.5f) * cellSize;
+//                float cy = (j + 0.5f) * cellSize;
+//
+//                // Glow layer
+//                if (brightness > 0.3f) {
+//                    pixelPaint.setStyle(Paint.Style.FILL);
+//                    pixelPaint.setColor(Color.argb((int)(brightness * 40), 0, 255, 200));
+//                    canvas.drawCircle(cx, cy, cellSize * 0.8f, pixelPaint);
+//                }
+//
+//                // Core layer
+//                // color change based on brightness
+//                int alpha = (int) (brightness * 255);
+//                // display tint grey if brightness = minBrightness
+//                if (brightness <= minBrightness) {
+//                    pixelPaint.setColor(Color.argb(30, 50, 50, 80));
+//                } else {
+//                    pixelPaint.setColor(Color.argb(alpha, 0, 255, 220));
+//                }
+//
+//                pixelPaint.setStyle(Paint.Style.FILL);
+//                canvas.drawRect(
+//                        cx - pixelSize/2, cy - pixelSize/2,
+//                        cx + pixelSize/2, cy + pixelSize/2,
+//                        pixelPaint
+//                );
+//            }
+//        }
+//    }
 
-        for (int i = 0; i < cols; i++) {
-            for (int j = 0; j < rows; j++) {
+    private void drawVerticies(Canvas canvas, float cellSize){
+        float halfSize = (cellSize - 4f) / 2f;
+
+        for(int i = 0; i < cols; i++){
+            for(int j = 0; j < rows; j++){
                 float brightness = pixelBrightness[i][j];
                 float cx = (i + 0.5f) * cellSize;
                 float cy = (j + 0.5f) * cellSize;
 
-                // Glow layer
-                if (brightness > 0.3f) {
-                    pixelPaint.setStyle(Paint.Style.FILL);
-                    pixelPaint.setColor(Color.argb((int)(brightness * 40), 0, 255, 200));
-                    canvas.drawCircle(cx, cy, cellSize * 0.8f, pixelPaint);
-                }
+                int n = j * cols + i; // cell's inter position in the grid
+                int vStart = n * 8; // verticy start
+                int cStart = n * 4; // color start
 
-                // Core layer
-                // color change based on brightness
+                //glow layer
+
+
+                //core layer
+                // set values for 4 verticies edges
+                vertices[vStart] = cx - halfSize; vertices[vStart + 1] = cy - halfSize;
+                vertices[vStart + 2] = cx + halfSize; vertices[vStart + 3] = cy - halfSize;
+                vertices[vStart + 4] = cx - halfSize; vertices[vStart + 5] = cy + halfSize;
+                vertices[vStart + 6] = cx + halfSize; vertices[vStart + 7] = cy + halfSize;
+
+                // colors
+                int color;
                 int alpha = (int) (brightness * 255);
-                // display tint grey if brightness = minBrightness
                 if (brightness <= minBrightness) {
-                    pixelPaint.setColor(Color.argb(30, 50, 50, 80));
+                    color = Color.argb(30, 50, 50, 80);
                 } else {
-                    pixelPaint.setColor(Color.argb(alpha, 0, 255, 220));
+                    color = Color.argb(alpha, 0, 255, 220);
                 }
 
-                pixelPaint.setStyle(Paint.Style.FILL);
-                canvas.drawRect(
-                        cx - pixelSize/2, cy - pixelSize/2,
-                        cx + pixelSize/2, cy + pixelSize/2,
-                        pixelPaint
-                );
+                // give the same color for 4 edges
+                colors[cStart] = colors[cStart + 1] = colors[cStart + 2] = colors[cStart + 3] = color;
             }
         }
+
+        //draw all of the verticies
+        canvas.drawVertices(
+                Canvas.VertexMode.TRIANGLES,
+                vertices.length,
+                vertices,
+                0,
+                null,
+                0,
+                colors,
+                0,
+                indices,
+                0,
+                indices.length,
+                pixelPaint
+        );
     }
     private void drawDensityCells(Canvas canvas, float cellSize){
         // draw cells
@@ -804,16 +886,6 @@ public class PixelFluidView extends View {
                 Log.e("FluidError", "NaN detected at: " + location);
                 init(); // Reset lại toàn bộ simulation để chạy tiếp
                 break;
-            }
-        }
-    }
-
-    private void checkGridSanity(String tag) {
-        for (int i = 0; i <= cols; i++) {
-            for (int j = 0; j < rows; j++) {
-                if (Float.isNaN(u[i][j]) || Float.isInfinite(u[i][j])) {
-                    Log.e("FluidDebug", tag + ": u[" + i + "][" + j + "] is " + u[i][j]);
-                }
             }
         }
     }

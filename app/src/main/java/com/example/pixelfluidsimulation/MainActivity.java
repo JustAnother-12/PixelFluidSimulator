@@ -57,10 +57,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         checkBoxFPS.setChecked(true);
         checkBoxGrid.setChecked(false);
         seekBarStiffness.setProgress(20);
-        seekBarSensor.setProgress(20);
+        seekBarSensor.setProgress(25);
         txtStiffnessValue.setText(String.valueOf(seekBarStiffness.getProgress()/10f));
-        txtSensorValue.setText(String.valueOf(seekBarSensor.getProgress()));
-        sensorStrength = 20f;
+        txtSensorValue.setText(String.valueOf(seekBarSensor.getProgress()*2));
+        sensorStrength = 50f;
 
 
         // sync fluidView
@@ -107,7 +107,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         seekBarSensor.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                float gravityMultiply = (float) progress;
+                float gravityMultiply = (float) (progress*2);
                 sensorStrength = gravityMultiply;
                 txtSensorValue.setText(String.valueOf(gravityMultiply));
             }
