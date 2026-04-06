@@ -31,13 +31,15 @@ public class PixelFluidView extends View {
     private float currentFPS = 0;
 
     // particles
-    private List<Particle> particles = new ArrayList<>();
+    private List<Particle> particles;
     private int maxParticles = 1000;
     private float particleRadius = 0.1f;
 
     // grid
-    private int cols = 50;
-    private int rows = 80;
+    private int cols;
+    private int rows;
+    private float cellSize;
+    private final float TARGET_CELL_SIZE_DP = 10f;
 
     private float[][] u;
     private float[][] v;
@@ -45,8 +47,8 @@ public class PixelFluidView extends View {
     private float[][] uPrev;
     private float[][] vPrev;
 
-    private float[][] weightU = new float[cols + 1][rows];
-    private float[][] weightV = new float[cols][rows + 1];
+    private float[][] weightU;
+    private float[][] weightV;
 
     private int numPressureIters = 60; // Số vòng lặp giải áp suất
     private float overRelaxation = 1.9f; // Hệ số hội tụ nhanh (1.0 -> 2.0)
@@ -76,18 +78,15 @@ public class PixelFluidView extends View {
     private Paint uiPaint;
     private Paint pixelPaint;
     private Paint particlePaint;
-    private float[][] pixelBrightness = new float[cols][rows];
+    private float[][] pixelBrightness;
     private float decayRate = 0.65f; // speed for brightness decaying (0.0 -> 1.0)
     private float minBrightness = 0.05f;
 
     // verticies
-    private int numQuads = cols * rows; // number of cells
-    private int numVerticies = numQuads * 4; // each quad has 4 points for vertices
-    private int numIndices = numQuads * 6; // each quad has 6 numbers to tell the GPU draw order
-
-    private float[] vertices = new float[numVerticies*2]; //x and y
-    private int[] colors = new int[numVerticies]; // 1 color or each point
-    private short[] indices = new short[numIndices];
+    private int numQuads; // number of cells
+    private float[] vertices; //x and y
+    private int[] colors; // 1 color or each point
+    private short[] indices;
 
     //delta time
     float dt = 0.016f; // ~60fps
@@ -96,6 +95,40 @@ public class PixelFluidView extends View {
     private boolean isRunning = false;
     private Thread physicsThread;
     private final Object syncLock = new Object();
+
+    private void reinitializeSimulation() {
+        synchronized (syncLock) {
+            // Cấp phát lại các mảng vận tốc, áp suất theo cols, rows mới
+            u = new float[cols + 1][rows];
+            v = new float[cols][rows + 1];
+            uPrev = new float[cols + 1][rows];
+            vPrev = new float[cols][rows + 1];
+            weightU = new float[cols + 1][rows];
+            weightV = new float[cols][rows + 1];
+
+            cellType = new int[cols][rows];
+            particleDensity = new float[cols][rows];
+            pixelBrightness = new float[cols][rows];
+
+            // Cấp phát Spatial Hashing
+            cellCount = new int[cols * rows];
+            firstParticle = new int[cols * rows];
+            nextParticle = new int[maxParticles];
+
+            // Cấp phát Vertex buffer cho drawVertices
+            numQuads = cols * rows;
+            vertices = new float[numQuads * 8]; // 4 điểm x 2 (x,y)
+            colors = new int[numQuads * 4];     // 4 điểm
+            indices = new short[numQuads * 6];  // 2 tam giác
+
+            initIndices();
+            initBorder();
+            particles.clear();
+            initParticles();
+            //recalculate rest density
+            restDensity = (float) (maxParticles / ((cols * rows) * 0.2f));
+        }
+    }
 
     public PixelFluidView(Context context) {
         super(context);
@@ -157,19 +190,6 @@ public class PixelFluidView extends View {
     }
 
     private void init(){
-        u = new float[cols + 1][rows];
-        v = new float[cols][rows + 1];
-        uPrev = new float[cols + 1][rows];
-        vPrev = new float[cols][rows + 1];
-
-        cellType = new int[cols][rows];
-        particleDensity = new float[cols][rows];
-
-        // Cấp phát cho Spatial Hashing (số lượng phần tử = maxParticles)
-        cellCount = new int[cols * rows];
-        firstParticle = new int[cols * rows];
-        nextParticle = new int[maxParticles];
-
         // paints
         paint = new Paint();
         paint.setAntiAlias(false);
@@ -185,10 +205,12 @@ public class PixelFluidView extends View {
         // Particle paint for particle render
         particlePaint = new Paint();
 
-        //indices
-        initIndices();
+        particles = new ArrayList<>();
 
-        //init border
+        isRunning = false;
+    }
+
+    private void initBorder(){
         for (int i = 0; i < cols; i++) {
             for (int j = 0; j < rows; j++) {
                 // Tạo tường bao quanh
@@ -199,8 +221,9 @@ public class PixelFluidView extends View {
                 }
             }
         }
+    }
 
-        //init particles
+    private void initParticles(){
         for(int i = 0; i < maxParticles; i++){
             particles.add(new Particle(
                     1.5f + (float)(Math.random() * (cols - 3)), // Cách tường ít nhất 1 ô
@@ -208,8 +231,6 @@ public class PixelFluidView extends View {
                     particleRadius
             ));
         }
-
-        isRunning = false;
     }
 
     private void initIndices(){
@@ -249,6 +270,11 @@ public class PixelFluidView extends View {
 
     //update for particles
     private void update(float dt){
+        //check if the variable is available before doing calculations
+        if (u == null || cellCount == null || cellType == null) {
+            return;
+        }
+
         // apply force and move particles
         for(Particle p : particles) {
             p.vx += gx * dt;
@@ -672,7 +698,7 @@ public class PixelFluidView extends View {
     protected void onDraw(@NonNull Canvas canvas) {
         super.onDraw(canvas);
 
-        float cellSize = getWidth() / (float) cols;
+//        float cellSize = getWidth() / (float) cols;
 
         // draw background
         canvas.drawColor(Color.rgb(10, 10, 20));
@@ -909,5 +935,19 @@ public class PixelFluidView extends View {
     // Density Stiffness (0.0 -> 1.0)
     public void setDensityStiffness(float stiffness) {
         this.densityStiffness = stiffness;
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        float screenDensity = getResources().getDisplayMetrics().density;
+        cellSize = TARGET_CELL_SIZE_DP * screenDensity;
+
+        cols = (int) Math.ceil(w / cellSize);
+        rows = (int) Math.ceil(h / cellSize);
+
+        cellSize = (float) w / cols;
+
+        reinitializeSimulation();
     }
 }
