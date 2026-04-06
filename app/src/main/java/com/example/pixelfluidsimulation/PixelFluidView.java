@@ -36,9 +36,6 @@ public class PixelFluidView extends View {
     private float particleRadius = 0.1f;
 
     // grid
-//    private int cols = 30;
-//    private int rows = 50;
-
     private int cols = 50;
     private int rows = 80;
 
@@ -85,7 +82,7 @@ public class PixelFluidView extends View {
 
     // verticies
     private int numQuads = cols * rows; // number of cells
-    private int numVerticies = numQuads * 4; // each quad has 4 points for verticies
+    private int numVerticies = numQuads * 4; // each quad has 4 points for vertices
     private int numIndices = numQuads * 6; // each quad has 6 numbers to tell the GPU draw order
 
     private float[] vertices = new float[numVerticies*2]; //x and y
@@ -127,7 +124,6 @@ public class PixelFluidView extends View {
                     synchronized (syncLock){
                         update(dt);
                     }
-
                     //draw with background thread
                     postInvalidate();
 
@@ -253,7 +249,7 @@ public class PixelFluidView extends View {
 
     //update for particles
     private void update(float dt){
-        // apply gravity and move particles
+        // apply force and move particles
         for(Particle p : particles) {
             p.vx += gx * dt;
             p.vy += gy * dt;
@@ -710,6 +706,7 @@ public class PixelFluidView extends View {
 
             // draw the pixels
             if(renderPixel)
+//                drawPixels(canvas, cellSize);
                 drawVerticies(canvas, cellSize);
 
         }
@@ -750,42 +747,42 @@ public class PixelFluidView extends View {
         }
     }
 
-//    private void drawPixels(Canvas canvas, float cellSize) {
-//        float spacing = 4f;
-//        float pixelSize = cellSize - spacing;
-//
-//        for (int i = 0; i < cols; i++) {
-//            for (int j = 0; j < rows; j++) {
-//                float brightness = pixelBrightness[i][j];
-//                float cx = (i + 0.5f) * cellSize;
-//                float cy = (j + 0.5f) * cellSize;
-//
-//                // Glow layer
-//                if (brightness > 0.3f) {
-//                    pixelPaint.setStyle(Paint.Style.FILL);
-//                    pixelPaint.setColor(Color.argb((int)(brightness * 40), 0, 255, 200));
-//                    canvas.drawCircle(cx, cy, cellSize * 0.8f, pixelPaint);
-//                }
-//
-//                // Core layer
-//                // color change based on brightness
-//                int alpha = (int) (brightness * 255);
-//                // display tint grey if brightness = minBrightness
-//                if (brightness <= minBrightness) {
-//                    pixelPaint.setColor(Color.argb(30, 50, 50, 80));
-//                } else {
-//                    pixelPaint.setColor(Color.argb(alpha, 0, 255, 220));
-//                }
-//
-//                pixelPaint.setStyle(Paint.Style.FILL);
-//                canvas.drawRect(
-//                        cx - pixelSize/2, cy - pixelSize/2,
-//                        cx + pixelSize/2, cy + pixelSize/2,
-//                        pixelPaint
-//                );
-//            }
-//        }
-//    }
+    private void drawPixels(Canvas canvas, float cellSize) {
+        float spacing = 4f;
+        float pixelSize = cellSize - spacing;
+
+        for (int i = 0; i < cols; i++) {
+            for (int j = 0; j < rows; j++) {
+                float brightness = pixelBrightness[i][j];
+                float cx = (i + 0.5f) * cellSize;
+                float cy = (j + 0.5f) * cellSize;
+
+                // Glow layer
+                if (brightness > 0.3f) {
+                    pixelPaint.setStyle(Paint.Style.FILL);
+                    pixelPaint.setColor(Color.argb((int)(brightness * 40), 0, 255, 200));
+                    canvas.drawCircle(cx, cy, cellSize * 0.8f, pixelPaint);
+                }
+
+                // Core layer
+                // color change based on brightness
+                int alpha = (int) (brightness * 255);
+                // display tint grey if brightness = minBrightness
+                if (brightness <= minBrightness) {
+                    pixelPaint.setColor(Color.argb(30, 50, 50, 80));
+                } else {
+                    pixelPaint.setColor(Color.argb(alpha, 0, 255, 220));
+                }
+
+                pixelPaint.setStyle(Paint.Style.FILL);
+                canvas.drawRect(
+                        cx - pixelSize/2, cy - pixelSize/2,
+                        cx + pixelSize/2, cy + pixelSize/2,
+                        pixelPaint
+                );
+            }
+        }
+    }
 
     private void drawVerticies(Canvas canvas, float cellSize){
         float halfSize = (cellSize - 4f) / 2f;
@@ -866,7 +863,7 @@ public class PixelFluidView extends View {
         lastTime = currentTime;
     }
 
-    public void setGravity(float gx, float gy){
+    public void setForce(float gx, float gy){
         this.gx = gx;
         this.gy = gy;
     }

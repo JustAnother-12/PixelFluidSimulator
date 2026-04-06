@@ -5,7 +5,10 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Bundle;
+import android.view.View;
+import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
@@ -13,6 +16,9 @@ import androidx.appcompat.app.AppCompatActivity;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
 
+    private LinearLayout panelControls;
+    private Button btnToggleMenu;
+    private TextView btnClose;
     private SensorManager sensorManager;
     private Sensor accelerometer;
     private PixelFluidView fluidView;
@@ -33,6 +39,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         //get from layout
         fluidView = findViewById(R.id.fluidView);
+        panelControls = findViewById(R.id.panelControls);
+        btnToggleMenu = findViewById(R.id.btnToggleMenu);
+        btnClose = findViewById(R.id.btnClose);
 
         checkBoxParticle = findViewById(R.id.checkParticle);
         checkBoxFPS = findViewById(R.id.checkFPS);
@@ -72,6 +81,18 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
 
         // Events
+        // Khi bấm nút Settings -> Hiện menu, ẩn nút Settings
+        btnToggleMenu.setOnClickListener(v -> {
+            panelControls.setVisibility(View.VISIBLE);
+            btnToggleMenu.setVisibility(View.GONE);
+        });
+
+        // Khi bấm nút Close -> Ẩn menu, hiện lại nút Settings
+        btnClose.setOnClickListener(v -> {
+            panelControls.setVisibility(View.GONE);
+            btnToggleMenu.setVisibility(View.VISIBLE);
+        });
+
         checkBoxParticle.setOnCheckedChangeListener(
                 ((buttonView, isChecked) -> fluidView.setRenderParticle(isChecked))
         );
@@ -152,7 +173,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             float gx = -event.values[0] * sensorStrength;
             float gy = event.values[1] * sensorStrength;
 
-            fluidView.setGravity(gx, gy);
+            fluidView.setForce(gx, gy);
         }
     }
 
