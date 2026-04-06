@@ -33,6 +33,7 @@ public class PixelFluidView extends View {
     // particles
     private List<Particle> particles;
     private int maxParticles = 1000;
+    private int currentParticleCount;
     private float particleRadius = 0.1f;
 
     // grid
@@ -124,7 +125,8 @@ public class PixelFluidView extends View {
             initIndices();
             initBorder();
             particles.clear();
-            initParticles();
+//            initParticles();
+            currentParticleCount = 0;
             //recalculate rest density
             restDensity = (float) (maxParticles / ((cols * rows) * 0.2f));
         }
@@ -155,6 +157,18 @@ public class PixelFluidView extends View {
 
                     //Lock syncing
                     synchronized (syncLock){
+                        if(currentParticleCount < maxParticles){
+                            int particlesToAdd = Math.min(20, maxParticles-currentParticleCount);
+
+                            for(int i=0; i<particlesToAdd; i++){
+                                particles.add(new Particle(
+                                        1.5f + (float)(Math.random() * (cols - 3)), // Cách tường ít nhất 1 ô
+                                        1.5f + (float)(Math.random() * (rows - 3)),
+                                        particleRadius
+                                ));
+                                currentParticleCount++;
+                            }
+                        }
                         update(dt);
                     }
                     //draw with background thread
@@ -173,6 +187,7 @@ public class PixelFluidView extends View {
                     }
                 }
             });
+            physicsThread.setPriority(Thread.NORM_PRIORITY - 1);
             physicsThread.start();
         }
     }
@@ -220,16 +235,6 @@ public class PixelFluidView extends View {
                     cellType[i][j] = AIR;
                 }
             }
-        }
-    }
-
-    private void initParticles(){
-        for(int i = 0; i < maxParticles; i++){
-            particles.add(new Particle(
-                    1.5f + (float)(Math.random() * (cols - 3)), // Cách tường ít nhất 1 ô
-                    1.5f + (float)(Math.random() * (rows - 3)),
-                    particleRadius
-            ));
         }
     }
 

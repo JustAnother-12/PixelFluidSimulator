@@ -152,9 +152,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
         }
 
-        if (fluidView != null) {
-            fluidView.startSimulation();
-        }
+        fluidView.post(()->{
+            fluidView.postDelayed(() -> {
+                fluidView.startSimulation();
+            }, 200);
+        });
     }
 
     @Override
